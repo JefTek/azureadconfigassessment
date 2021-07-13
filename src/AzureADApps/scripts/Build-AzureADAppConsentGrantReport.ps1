@@ -31,6 +31,9 @@ function Build-AzureADAppConsentGrantReport {
     Param (
 
         # Output as generated Excel workbook
+        [ValidateScript({if (!(Get-Module "ExcelImport" -ListAvailiable)) {
+            Write-Error "The ImportExcel module is not installed.   This is used to export the results to an Excel worksheet.  Please install the ImportExcel Module before using this parameter."
+        }})]
         [Parameter(ParameterSetName = 'Another Parameter Set')]
         [switch]
         $OutputExcelWorkbook,

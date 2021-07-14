@@ -21,7 +21,7 @@
     The functionality that best describes this cmdlet
 #>
 function Build-AzureADAppConsentGrantReport {
-    [CmdletBinding(DefaultParameterSetName = 'Parameter Set 1',
+    [CmdletBinding(DefaultParameterSetName = 'Download Permissions Table Data',
         SupportsShouldProcess = $true,
         PositionalBinding = $false,
         HelpUri = 'http://www.microsoft.com/',
@@ -30,15 +30,16 @@ function Build-AzureADAppConsentGrantReport {
     [OutputType([String])]
     Param (
 
-        # Output as generated Excel workbook
-        [ValidateScript({if (!(Get-Module "ExcelImport" -ListAvailiable)) {
-            Write-Error "The ImportExcel module is not installed.   This is used to export the results to an Excel worksheet.  Please install the ImportExcel Module before using this parameter."
-        }})]
-        [Parameter(ParameterSetName = 'Another Parameter Set')]
-        [switch]
-        $OutputExcelWorkbook,
+        # Output type for the report.
+        [ValidateSet("ExcelWorkbook", "PowerShellObjects")]
+        [string]
+        $ReportOutputType = "ExcelWorkbook",
+        # Output file location for Excel Workbook
+        [Parameter(ParameterSetName = 'Excel Workbook Output')]
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ExcelWorkbookPath,
         # Path to CSV file for Permissions Table
-        [Parameter(ParameterSetName = 'Another Parameter Set')]
         [string]
         $PermissionsTableCsvPath
     )
@@ -56,7 +57,8 @@ function Build-AzureADAppConsentGrantReport {
 
         function GenerateExcelReport {
             param (
-                $evaluatedData
+                $evaluatedData,
+                $Path
             )
 
             Load-Module "ImportExcel"
@@ -177,7 +179,7 @@ function Build-AzureADAppConsentGrantReport {
             # An in-memory cache of objects by {object ID} andy by {object class, object ID}
             $script:ObjectByObjectId = @{}
             $script:ObjectByObjectClassId = @{}
-            $script:KnownMSTenantIds = @("f8cdef31-a31e-4b4a-93e4-5f571e91255a","72f988bf-86f1-41af-91ab-2d7cd011db47")
+            $script:KnownMSTenantIds = @("f8cdef31-a31e-4b4a-93e4-5f571e91255a", "72f988bf-86f1-41af-91ab-2d7cd011db47")
 
             # Function to add an object to the cache
             function CacheObject($Object) {
@@ -325,53 +327,66 @@ function Build-AzureADAppConsentGrantReport {
             $count = 0
             $data | ForEach-Object {
 
-                $count++
-                Write-Progress -activity "Processing risk for each permission . . ." -status "Processed: $count of $($data.Count)" -percentComplete (($count / $data.Count) * 100)
+                try {
+                   
+                    $count++
+                    Write-Progress -activity "Processing risk for each permission . . ." -status "Processed: $count of $($data.Count)" -percentComplete (($count / $data.Count) * 100)
 
-                $scope = $_.Permission
-                if ($_.PermissionType -eq "Delegated-AllPrincipals" -or "Delegated-Principal") {
-                    $type = "Delegated"
-                }
-                elseif ($_.PermissionType -eq "Application") {
-                    $type = "Application"
-                }
+                    $scope = $_.Permission
+                    if ($_.PermissionType -eq "Delegated-AllPrincipals" -or "Delegated-Principal") {
+                        $type = "Delegated"
+                    }
+                    elseif ($_.PermissionType -eq "Application") {
+                        $type = "Application"
+                    }
 
-                # Check permission table for an exact match
-                $risk = $null
-                $scoperoot = @()
-                Write-Debug ("Permission Scope: $Scope")
-                $scoperoot = $scope.Split(".")[0]
+                    # Check permission table for an exact match
+                    $risk = $null
+                    $scoperoot = @()
+                    Write-Debug ("Permission Scope: $Scope")
 
-                $test = ($permstable | Where-Object { $_.Permission -eq "$scoperoot" -and $_.Type -eq $type }).Risk # checking if there is a matching root in the CSV
-                $risk = ($permstable | Where-Object { $_.Permission -eq "$scope" -and $_.Type -eq $type }).Risk # Checking for an exact match
+                    if ($scope -match '.') {
+                        $scoperoot = $scope.Split(".")[0]
+                    }
+                    else {
+                        $scoperoot = $scope
+                    }
 
-                # Search for matching root level permission if there was no exact match
-                if (!$risk -and $test) {
-                    # No exact match, but there is a root match
-                    $risk = ($permstable | Where-Object { $_.Permission -eq "$scoperoot" -and $_.Type -eq $type }).Risk
-                }
-                elseif (!$risk -and !$test -and $type -eq "Application" -and $scope -like "*Write*") {
-                    # Application permissions without exact or root matches with write scope
-                    $risk = "High"
-                }
-                elseif (!$risk -and !$test -and $type -eq "Application" -and $scope -notlike "*Write*") {
-                    # Application permissions without exact or root matches without write scope
-                    $risk = "Medium"
-                }
-                elseif ($risk) {
+                    $test = ($permstable | Where-Object { $_.Permission -eq "$scoperoot" -and $_.Type -eq $type }).Risk # checking if there is a matching root in the CSV
+                    $risk = ($permstable | Where-Object { $_.Permission -eq "$scope" -and $_.Type -eq $type }).Risk # Checking for an exact match
 
-                }
-                else {
-                    # Any permissions without a match, should be primarily Delegated permissions
-                    $risk = "Unranked"
-                }
+                    # Search for matching root level permission if there was no exact match
+                    if (!$risk -and $test) {
+                        # No exact match, but there is a root match
+                        $risk = ($permstable | Where-Object { $_.Permission -eq "$scoperoot" -and $_.Type -eq $type }).Risk
+                    }
+                    elseif (!$risk -and !$test -and $type -eq "Application" -and $scope -like "*Write*") {
+                        # Application permissions without exact or root matches with write scope
+                        $risk = "High"
+                    }
+                    elseif (!$risk -and !$test -and $type -eq "Application" -and $scope -notlike "*Write*") {
+                        # Application permissions without exact or root matches without write scope
+                        $risk = "Medium"
+                    }
+                    elseif ($risk) {
 
-                # Add the risk to the current object
-                Add-Member -InputObject $_ -MemberType NoteProperty -Name Risk -Value $risk
-                Add-Member -InputObject $_ -MemberType NoteProperty -Name RiskFilter -Value $risk
-                Add-Member -InputObject $_ -MemberType NoteProperty -Name Reason -Value $reason
+                    }
+                    else {
+                        # Any permissions without a match, should be primarily Delegated permissions
+                        $risk = "Unranked"
+                    }
 
-                Write-Output $_
+                    # Add the risk to the current object
+                    Add-Member -InputObject $_ -MemberType NoteProperty -Name Risk -Value $risk
+                    Add-Member -InputObject $_ -MemberType NoteProperty -Name RiskFilter -Value $risk
+                    Add-Member -InputObject $_ -MemberType NoteProperty -Name Reason -Value $reason
+                }
+                catch {
+                    Write-Error "Error Processing Permission for $_"
+                }
+                finally {
+                    Write-Output $_
+                }
             }
 
         }
@@ -396,11 +411,18 @@ function Build-AzureADAppConsentGrantReport {
         }
 
         checkMSGraphConnection
+
+        if ("ExcelWorkbook" -eq $ReportOutputType) {
+            # Determine if the ImportExcel module is installed since the parameter was included
+            if ($null -eq (get-module -Name ImportExcel -ListAvailable)) {
+                throw "The ImportExcel module is not installed.   This is used to export the results to an Excel worksheet.  Please install the ImportExcel Module before using this parameter or run without this parameter."
+            }
+        }
+        
     }
     process {
 
         $permstable = loadPermisionsTable -PermissionsTableCsvPath $PermissionsTableCsvPath
-
 
         Write-Verbose "Retrieving Permission Grants from Azure AD Tenant..."
         $data = Get-MSCloudIdConsentGrantList
@@ -411,12 +433,15 @@ function Build-AzureADAppConsentGrantReport {
     }
     end {
 
-        if ($false -eq $OutputExcelWorkbook) {
-            Write-Output $evaluatedData
-        }
-        else {
-            GenerateExcelReport -evaluatedData $evaluatedData
-        }
+        if ("ExcelWorkbook" -eq $ReportOutputType) {
+            {
+                GenerateExcelReport -evaluatedData $evaluatedData -Path $ExcelWorkbookPath
+            
+            }
+            else {
+                Write-Output $evaluatedData
+            }
 
+        }
     }
 }

@@ -49,9 +49,27 @@ function Build-AzureADAppConsentGrantReport {
         function checkMSGraphConnection {
 
 
-            if ($null -eq (Get-MgContext)) {
-                Write-Error "Please Connect to MS Graph API with the Connect-mgGraph cmdlet from the Microsoft.Graph.Authentication module first before calling functions!" -ErrorAction Stop
+        $apiPermissionScopes = @("Application.Read.All")
+ 
+        if ($null -eq (Get-MgContext) -or $null -eq (Get-MgContext).Scopes) {
+            Write-Error "Please Connect to MS Graph API with the Connect-mgGraph cmdlet from the Microsoft.Graph.Authentication module first before calling functions!" -ErrorAction Stop
+        }
+        else {
+            # Check that the current mgContext has the needed permissions for the call
+            $authorized = $false
+            foreach ($checkPermission in $apiPermissionScopes) {
+                if ((Get-MgContext).Scopes.Contains($checkPermission)) {
+                    $authorized = $true
+                }
             }
+            if ($true -ne $authorized) {
+                Write-Error "Current MS Graph Context does not contain the proper scopes required to call the Application/Service Principal API.  Please ensure you are connecting with an identity that has this permission scope (Application.Read.All)!" -ErrorAction Stop
+            }
+
+
+        }
+
+
 
         }
 
@@ -166,7 +184,8 @@ function Build-AzureADAppConsentGrantReport {
             Add-ConditionalFormatting -Worksheet $sheet -Range "B1:B1048576" -RuleType Equal -ConditionValue "High" -ForeGroundColor White -BackgroundColor Red -Bold -Underline
             Set-ExcelRange -Worksheet $sheet -Range A1:C1048576 -AutoSize
 
-            Export-Excel -ExcelPackage $excel -Show
+            Export-Excel -ExcelPackage $excel|Out-Null
+            Write-Verbose ("Excel workbook {0}" -f $ExcelWorkbookPath)
         }
 
         function Get-MSCloudIdConsentGrantList {

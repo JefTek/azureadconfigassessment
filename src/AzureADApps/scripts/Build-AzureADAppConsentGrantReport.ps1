@@ -61,8 +61,6 @@ function Build-AzureADAppConsentGrantReport {
                 $Path
             )
 
-            Load-Module "ImportExcel"
-
             # Delete the existing output file if it already exists
             $OutputFileExists = Test-Path $Path
             if ($OutputFileExists -eq $true) {
@@ -78,7 +76,7 @@ function Build-AzureADAppConsentGrantReport {
                 $userAssignmentRequired = Get-MgServicePrincipal -ServicePrincipalId $_.ClientObjectId
 
                 if ($userAssignmentRequired.AppRoleAssignmentRequired -eq $true) {
-                    $userAssignments = Get-MgServicePrincipalAppRoleAssignment -AppRoleAssignmentId $_.ClientObjectId -All:$true
+                    $userAssignments = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $_.ClientObjectId -All:$true
                     $userAssignmentsCount = $userAssignments.count
                     Add-Member -InputObject $_ -MemberType NoteProperty -Name UsersAssignedCount -Value $userAssignmentsCount
                 }
@@ -434,14 +432,14 @@ function Build-AzureADAppConsentGrantReport {
     end {
 
         if ("ExcelWorkbook" -eq $ReportOutputType) {
-            {
-                GenerateExcelReport -evaluatedData $evaluatedData -Path $ExcelWorkbookPath
             
-            }
-            else {
-                Write-Output $evaluatedData
-            }
-
+            Write-Verbose "Generating Excel Workbook at $ExcelWorkbookPath"
+            GenerateExcelReport -evaluatedData $evaluatedData -Path $ExcelWorkbookPath
+            
         }
+        else {
+            Write-Output $evaluatedData
+        }
+
     }
 }
